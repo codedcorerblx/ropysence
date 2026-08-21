@@ -80,7 +80,7 @@ OPTION_SCHEMA = {
     "script.dev.discord.webhook": ("str", "", False, "Discord webhook URL for remote logging, sent in periodic batches"),
     "script.dev.discord.webhook.interval": ("int", 30, False, "Seconds between webhook log flushes"),
     "script.dev.alias": ("str", "ropysence", False, "Used as the Gateway client name and webhook embed author"),
-    "script.dev.img.default": ("str", "icon", False, "Discord Rich Presence Art Asset key for icon.png -- upload it in the dev portal under this exact name"),
+    "script.dev.img.default": ("str", "", False, "Discord Rich Presence Art Asset key for icon.png -- MUST be uploaded in the dev portal under this exact name first, or Discord appears to silently drop the whole activity update rather than just that image. Leave blank (default) to omit the image entirely until you've uploaded one."),
 }
 
 _TYPE_ORDER = ["Required", "Privacy", "Buttons", "Activity text", "Behavior", "Dev / logging"]

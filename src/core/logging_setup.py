@@ -19,6 +19,8 @@ import sys
 _CONFIGURED = False
 _CONSOLE_HANDLER = None
 
+BYPASS = 25  # between INFO(20) and WARNING(30) -- always shown, see log_bypass() below
+
 
 class _LevelFilter(logging.Filter):
     """Only allow through the specific levels in `allowed` -- a plain
@@ -42,6 +44,7 @@ def setup_logging():
     logging.addLevelName(logging.WARNING, "WRN")
     logging.addLevelName(logging.ERROR, "ERR")
     logging.addLevelName(logging.CRITICAL, "CRT")
+    logging.addLevelName(BYPASS, "BYP")
 
     root = logging.getLogger()
     root.setLevel(logging.DEBUG)
@@ -68,6 +71,7 @@ def apply_options(options: dict):
     if options.get("script.dev.error", True):
         allowed.add(logging.ERROR)
     allowed.add(logging.CRITICAL)  # never silence CRT
+    allowed.add(BYPASS)  # never silence BYP either -- see log_bypass()
 
     _CONSOLE_HANDLER.addFilter(_LevelFilter(allowed))
     get_logger("logging_setup").debug(
@@ -92,6 +96,16 @@ def apply_options(options: dict):
 def get_logger(name: str) -> logging.Logger:
     setup_logging()
     return logging.getLogger(name)
+
+
+def log_bypass(logger: logging.Logger, msg: str, *args, **kwargs):
+    """Logs at BYP level, which is always shown regardless of script.dev.*
+    toggles -- for the rare case where a message is genuinely important
+    context even with info-level logging turned off, e.g. 'presence
+    recovered after being offline'. Use sparingly; this exists specifically
+    to avoid spamming a repeated warning every poll cycle while still
+    telling the user once things go back to normal."""
+    logger.log(BYPASS, msg, *args, **kwargs)
 
 
 def redact(value, keep: int = 0) -> str:

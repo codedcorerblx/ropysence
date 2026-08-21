@@ -20,7 +20,7 @@ import threading
 
 import requests
 
-from src.core.logging_setup import get_logger
+from src.core.logging_setup import get_logger, log_bypass
 from src.workers.pool import WorkerPool
 
 log = get_logger("roblox_client")
@@ -59,6 +59,7 @@ class RobloxClient:
         # cookiejar is internally lock-protected by http.cookiejar, so plain
         # concurrent GETs/POSTs that don't touch _csrf_token are fine as-is.
         self._csrf_token = None
+        self._last_ptype = None  # powers the "warn once, then bypass-notify on recovery" behavior
         self._csrf_lock = threading.Lock()
 
         self.pool = WorkerPool(max_workers=max_workers, thread_name_prefix="roblox-worker")
@@ -161,19 +162,30 @@ class RobloxClient:
         )
 
         if ptype == PRESENCE_OFFLINE:
-            log.warning(
-                "Roblox reports this account as OFFLINE (userPresenceType=0). If you expect "
-                "otherwise, the full response body was logged above at DBG -- check it first "
-                "(an empty/odd body means Roblox itself thinks you're offline, not a bug here). "
-                "Things worth checking if the body genuinely says offline while you're playing: "
-                "(1) Settings > Privacy > 'Who can see that you're online' -- some privacy levels "
-                "affect presence reads even for your own cookie; (2) the cookie belongs to the "
-                "session that's actually in-game (e.g. a cookie copied from a browser tab, while "
-                "you're playing via the desktop app under a *different* logged-in session); "
-                "(3) presence.roblox.com has a known short caching lag after you join a game, "
-                "usually well under a minute, not persistent."
-            )
+            if self._last_ptype != PRESENCE_OFFLINE:
+                # Only warn once per offline *stretch*, not every poll cycle
+                # -- otherwise this repeats every script.interval seconds
+                # and drowns out everything else.
+                log.warning(
+                    "Roblox reports this account as OFFLINE (userPresenceType=0). If you expect "
+                    "otherwise, the full response body was logged above at DBG -- check it first "
+                    "(an empty/odd body means Roblox itself thinks you're offline, not a bug here). "
+                    "Things worth checking if the body genuinely says offline while you're playing: "
+                    "(1) Settings > Privacy > 'Who can see that you're online' -- some privacy levels "
+                    "affect presence reads even for your own cookie; (2) the cookie belongs to the "
+                    "session that's actually in-game (e.g. a cookie copied from a browser tab, while "
+                    "you're playing via the desktop app under a *different* logged-in session); "
+                    "(3) presence.roblox.com has a known short caching lag after you join a game, "
+                    "usually well under a minute, not persistent. (This warning won't repeat until "
+                    "your status changes and goes offline again.)"
+                )
+        elif self._last_ptype == PRESENCE_OFFLINE:
+            # We were offline last cycle and now aren't -- worth a heads-up
+            # even with info logging off, since it directly answers "did the
+            # thing above ever resolve".
+            log_bypass(log, "presence recovered -- no longer offline (userPresenceType=%s)", ptype)
 
+        self._last_ptype = ptype
         return p
 
     def get_universe_id(self, place_id: int):

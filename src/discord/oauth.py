@@ -165,7 +165,7 @@ def get_access_token(client_id: str, scopes: str, port: int, store: SecureStore)
     cached = store.get(STORE_KEY)
     now = time.time()
 
-    if cached and cached.get("scope") != scopes:
+    if cached and set(cached.get("scope", "").split()) != set(scopes.split()):
         log.warning("requested scopes changed since last run -- discarding cached tokens and re-authorizing")
         cached = None
 

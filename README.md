@@ -106,9 +106,12 @@ mechanisms are used here depending on the image:
 - **The default/fallback icon** (`script.dev.img.default`, shown for
   Online/Studio/Offline/anonymous-mode) has to be a Rich Presence **Art
   Asset** uploaded once in your Discord app's dev portal, referenced here
-  by the exact name you gave it there (default expects an asset named
-  `icon` -- upload `icon.png` under that name). If you skip this step, that
-  image is just omitted rather than showing something broken.
+  by the exact name you gave it there. **Defaults to blank/omitted** --
+  referencing an asset key that doesn't actually exist yet appears to make
+  Discord silently drop the *entire* activity update, not just that image
+  field, which is exactly what caused Online/Studio/Offline to never show
+  up at all in earlier testing. Upload `icon.png` under a name of your
+  choosing (e.g. `icon`), then set `script.dev.img.default="icon"` to match.
 
 ### Dev / logging
 

@@ -218,10 +218,19 @@ class PresenceBuilder:
         if buttons:
             activity["buttons"] = [b["label"] for b in buttons]
             activity["metadata"] = {"button_urls": [b["url"] for b in buttons]}
-            for b in buttons:
-                if b.get("is_profile"):
-                    activity["state_url"] = b["url"]
-                    break
+            # state_url only makes sense when there's visible state text to
+            # click -- Online/Studio/Offline have state="" by design, so
+            # attaching a click-target there would be a URL pointing at
+            # nothing visible. Only wire it up when state is non-empty
+            # (currently: only the "in game" branch).
+            if state:
+                for b in buttons:
+                    if b.get("is_profile"):
+                        activity["state_url"] = b["url"]
+                        break
+
+        if not activity["assets"]:
+            del activity["assets"]
 
         log.info("build_activity: result details='%s' state='%s'", details, state)
         return activity
