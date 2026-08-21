@@ -50,7 +50,7 @@ log = logging.getLogger("dc_rblx")
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
-CLIENT_ID = os.environ.get("938303388137971713", "1539867391985582160")
+CLIENT_ID = os.environ.get("your user id", "bot id")
 REDIRECT_PORT = 8969
 REDIRECT_URI = f"http://127.0.0.1:{REDIRECT_PORT}/callback"
 SCOPES = "openid sdk.social_layer_presence"
