@@ -7,8 +7,17 @@ webhook's rate limit and be wasteful for a script logging every few seconds.
 Runs its flush loop on a plain daemon thread, independent of asyncio, so it
 works regardless of whether the event loop is currently running, blocked,
 or between cycles.
+
+IMPORTANT: this properly subclasses logging.Handler (rather than duck-typing
+handle/emit/setFormatter/etc.) because Python's logging internals access
+attributes like `.level` and `.filters` directly rather than through a
+method call -- Logger.callHandlers does `if record.levelno >= hdlr.level`
+before ever calling hdlr.handle(), so a handler missing that attribute
+crashes the whole logging call, not just webhook delivery. Subclassing gets
+all of that correctly for free.
 """
 
+import logging
 import threading
 import time
 
@@ -17,50 +26,29 @@ import requests
 DISCORD_CONTENT_LIMIT = 1900  # stay comfortably under Discord's 2000-char message limit
 
 
-class WebhookLogHandler:
-    """Duck-types as a logging.Handler (has handle/emit/setFormatter/addFilter/
-    setLevel) without subclassing logging.Handler directly, to keep its own
-    background-thread lifecycle explicit and easy to reason about."""
-
+class WebhookLogHandler(logging.Handler):
     def __init__(self, webhook_url: str, flush_interval: float, alias: str):
+        super().__init__()
         self.webhook_url = webhook_url
         self.flush_interval = max(5, flush_interval)
         self.alias = alias
         self._buffer = []
-        self._lock = threading.Lock()
-        self._formatter = None
-        self._filters = []
+        self._buffer_lock = threading.Lock()
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._flush_loop, daemon=True, name="webhook-log-flusher")
         self._thread.start()
 
-    # -- logging.Handler-compatible surface --------------------------------
-    def setFormatter(self, fmt):
-        self._formatter = fmt
-
-    def addFilter(self, filt):
-        self._filters.append(filt)
-
-    def setLevel(self, level):
-        pass  # filtering is handled by the shared _LevelFilter instances
-
-    def handle(self, record) -> bool:
-        for f in self._filters:
-            if not f.filter(record):
-                return False
-        self.emit(record)
-        return True
-
-    def emit(self, record):
+    def emit(self, record: logging.LogRecord):
         try:
-            line = self._formatter.format(record) if self._formatter else record.getMessage()
+            line = self.format(record)
         except Exception:
             line = record.getMessage()
-        with self._lock:
+        with self._buffer_lock:
             self._buffer.append(line)
 
     def close(self):
         self._stop.set()
+        super().close()
 
     # -- flush loop -----------------------------------------------------------
     def _flush_loop(self):
@@ -69,7 +57,7 @@ class WebhookLogHandler:
         self._flush_once()  # final flush on shutdown
 
     def _flush_once(self):
-        with self._lock:
+        with self._buffer_lock:
             if not self._buffer:
                 return
             lines, self._buffer = self._buffer, []
