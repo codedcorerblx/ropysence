@@ -18,22 +18,25 @@ pip install -r requirements.txt
 python run.py
 ```
 
+Or install it as a command so you don't need `python run.py` every time:
+
+```
+pip install -e .
+ropysence
+```
+
 1. Create a Discord app at https://discord.com/developers/applications,
    enable OAuth2 -> "Public Client", and add a redirect URI matching
    `script.localhost.port` in your config (default `http://127.0.0.1:8969/callback`).
-2. (Optional but recommended) Upload `icon.png` as a Rich Presence Art Asset
-   under that app, named exactly `icon` -- this is the image shown whenever
-   you're Online, In Studio, Offline, or in anonymous mode. See
-   [Images](#images) below for why a local file can't just be referenced
-   directly.
-3. Run once: `python run.py`
-   - creates `options.txt` under `~/.config/ropysence/` and exits
-     so you can fill in `script.user.id`.
-4. Run again: `python run.py`
-   - Prompts for your Roblox `.ROBLOSECURITY` cookie (hidden input, stored
-     encrypted afterward -- never typed again).
-   - Opens your browser for Discord authorization (also cached afterward).
-   - Connects and starts pushing your Roblox activity.
+2. Run once (`python run.py` or `ropysence`): creates `options.txt` under
+   `~/.config/ropysence/` and exits so you can fill in `script.user.id`.
+   `script.dev.img.default` already points at this repo's hosted `icon.png`
+   by default, so there's no manual asset-upload step needed to get an
+   image showing for Online/Studio/Offline.
+3. Run again: prompts for your Roblox `.ROBLOSECURITY` cookie (hidden
+   input, stored encrypted afterward -- never typed again), opens your
+   browser for Discord authorization (also cached afterward), then
+   connects and starts pushing your Roblox activity.
 
 ## Configuration -- `options.txt`
 
@@ -94,24 +97,23 @@ wins if both are enabled.
 
 ### Images
 
-Discord's Activity API can't reference a local file path or a raw
-`https://` URL directly -- both silently fail to render. Two different
-mechanisms are used here depending on the image:
+Discord's Activity API can't reference a local file path directly. Two
+ways to specify `script.dev.img.default` (the fallback shown for Online/
+Studio/Offline/anonymous-mode):
 
-- **Roblox game thumbnails / your avatar** (dynamic, changes per game) get
-  resolved automatically each poll via Discord's
-  `POST /applications/{id}/external-assets` endpoint, which returns a
-  server-signed reference. No setup needed -- this just works once
-  `script.user.id` is set correctly.
-- **The default/fallback icon** (`script.dev.img.default`, shown for
-  Online/Studio/Offline/anonymous-mode) has to be a Rich Presence **Art
-  Asset** uploaded once in your Discord app's dev portal, referenced here
-  by the exact name you gave it there. **Defaults to blank/omitted** --
-  referencing an asset key that doesn't actually exist yet appears to make
-  Discord silently drop the *entire* activity update, not just that image
-  field, which is exactly what caused Online/Studio/Offline to never show
-  up at all in earlier testing. Upload `icon.png` under a name of your
-  choosing (e.g. `icon`), then set `script.dev.img.default="icon"` to match.
+- **A URL** (the default -- this repo's hosted `icon.png`): proxied
+  automatically through Discord's `POST /applications/{id}/external-assets`
+  endpoint every poll, exactly the same mechanism used for the real Roblox
+  game thumbnails and your avatar. Zero setup required.
+- **A bare string** (e.g. `icon`): treated as a literal Rich Presence **Art
+  Asset** key, which requires manually uploading an image under that exact
+  name in your Discord app's dev portal first. Referencing a key that
+  doesn't actually exist there appears to make Discord silently drop the
+  *entire* activity update, not just that image -- if you go this route and
+  Online/Studio/Offline stop showing up entirely, that manual upload step
+  is the first thing to check.
+
+Leave `script.dev.img.default` blank to omit the image entirely instead.
 
 ### Dev / logging
 

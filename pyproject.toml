@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ropysence"
+version = "1.0.0"
+description = "Custom Discord Rich Presence that mirrors your live Roblox status"
+requires-python = ">=3.9"
+dependencies = [
+    "requests",
+    "websockets",
+    "cryptography",
+    "keyring",
+]
+
+[project.scripts]
+ropysence = "src.app:main"
+
+[tool.setuptools]
+packages = ["src", "src.core", "src.discord", "src.roblox", "src.workers"]

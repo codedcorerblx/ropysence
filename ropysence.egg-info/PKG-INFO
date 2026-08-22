@@ -1,0 +1,11 @@
+Metadata-Version: 2.4
+Name: ropysence
+Version: 1.0.0
+Summary: Custom Discord Rich Presence that mirrors your live Roblox status
+Requires-Python: >=3.9
+License-File: LICENSE
+Requires-Dist: requests
+Requires-Dist: websockets
+Requires-Dist: cryptography
+Requires-Dist: keyring
+Dynamic: license-file

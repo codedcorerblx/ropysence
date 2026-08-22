@@ -1,0 +1,4 @@
+requests
+websockets
+cryptography
+keyring

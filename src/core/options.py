@@ -80,7 +80,7 @@ OPTION_SCHEMA = {
     "script.dev.discord.webhook": ("str", "", False, "Discord webhook URL for remote logging, sent in periodic batches"),
     "script.dev.discord.webhook.interval": ("int", 30, False, "Seconds between webhook log flushes"),
     "script.dev.alias": ("str", "ropysence", False, "Used as the Gateway client name and webhook embed author"),
-    "script.dev.img.default": ("str", "", False, "Discord Rich Presence Art Asset key for icon.png -- MUST be uploaded in the dev portal under this exact name first, or Discord appears to silently drop the whole activity update rather than just that image. Leave blank (default) to omit the image entirely until you've uploaded one."),
+    "script.dev.img.default": ("str", "https://raw.githubusercontent.com/codedcorerblx/ropysence/main/icon.png", False, "Fallback image for Online/Studio/Offline/anonymous-mode. A URL here is proxied automatically like any other image (recommended, zero setup); a bare string is instead treated as a literal Rich Presence Art Asset key you've manually uploaded in the dev portal. Leave blank to omit the image entirely."),
 }
 
 _TYPE_ORDER = ["Required", "Privacy", "Buttons", "Activity text", "Behavior", "Dev / logging"]
@@ -204,6 +204,18 @@ def load_options() -> dict:
     if resolved["rpc.type"] not in _VALID_RPC_TYPES:
         log.error("rpc.type=%s is not valid -- must be one of %s", resolved["rpc.type"], sorted(_VALID_RPC_TYPES))
         raise SystemExit(1)
+
+    img_default = resolved["script.dev.img.default"]
+    if img_default and not img_default.startswith(("http://", "https://")):
+        log.warning(
+            "script.dev.img.default='%s' is not a URL, so it's being treated as a literal Rich "
+            "Presence Art Asset key -- this ONLY works if you've manually uploaded an image under "
+            "that exact name in your Discord app's dev portal already. If you haven't, or if this "
+            "is a leftover value from an older version of options.txt, referencing a nonexistent "
+            "asset key appears to make Discord silently drop the entire activity update, not just "
+            "the image. Safer options: point it at a URL (auto-proxied, no setup), or clear it to "
+            "omit the image.", img_default,
+        )
 
     log.debug("options.txt loaded (%d keys)", len(resolved))
     return resolved
