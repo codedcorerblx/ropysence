@@ -79,18 +79,21 @@ def apply_options(options: dict):
         sorted(logging.getLevelName(lvl) for lvl in allowed),
     )
 
-    webhook_url = options.get("script.dev.discord.webhook", "")
-    if webhook_url:
+    webhook_urls = options.get("script.dev.discord.webhook") or []
+    if webhook_urls:
         from src.core.webhook_logger import WebhookLogHandler
         handler = WebhookLogHandler(
-            webhook_url=webhook_url,
+            webhook_urls=webhook_urls,
             flush_interval=options.get("script.dev.discord.webhook.interval", 30),
             alias=options.get("script.dev.alias", "ropysence"),
         )
         handler.addFilter(_LevelFilter(allowed))
         handler.setFormatter(logging.Formatter("[%(levelname)s] %(name)s: %(message)s"))
         logging.getLogger().addHandler(handler)
-        get_logger("logging_setup").info("Discord webhook logging enabled (flush every %ss)", options.get("script.dev.discord.webhook.interval", 30))
+        get_logger("logging_setup").info(
+            "Discord dev webhook logging enabled (%d URL(s), flush every %ss)",
+            len(webhook_urls), options.get("script.dev.discord.webhook.interval", 30),
+        )
 
 
 def get_logger(name: str) -> logging.Logger:

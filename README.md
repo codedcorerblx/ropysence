@@ -115,17 +115,54 @@ Studio/Offline/anonymous-mode):
 
 Leave `script.dev.img.default` blank to omit the image entirely instead.
 
+### Human notifications (readable status updates)
+
+Separate from the dev log webhook below -- `human.discord.webhook` sends
+one short, plain-language message per *genuine* status change (going
+online, offline, starting Studio, starting a game), never a batch of raw
+logs. Nothing sends if the state hasn't actually changed since the last
+poll, so it stays low-volume by design.
+
+```
+human.discord.webhook=["https://discord.com/api/webhooks/..."]
+human.message.ingame="{user.display} started playing {game.name}."
+```
+
+Message text for each state is fully templatable (`human.message.offline`,
+`.online`, `.studio`, `.ingame`, `.ingame.anonymous`), same `{token}`
+placeholders as everywhere else. `human.message.ingame.anonymous` is used
+instead of `human.message.ingame` when `privacy.anonymous` is on, and
+deliberately has no `{game.name}` -- the point of anonymous mode is that
+the game never leaks, including here.
+
 ### Dev / logging
 
 - `script.dev.debug` / `.info` / `.warn` / `.error` -- independent on/off
   switches per log level (not a single minimum threshold), shown as
   `DBG`/`INF`/`WRN`/`ERR` in the console.
-- `script.dev.discord.webhook` -- optional Discord webhook URL; if set,
-  log lines (respecting the same level toggles) are batched and flushed
-  there every `script.dev.discord.webhook.interval` seconds, instead of one
-  HTTP request per line.
-- `script.dev.alias` -- used as the Gateway client name and the webhook
-  message's username.
+- `script.dev.discord.webhook` -- the technical firehose: raw log lines
+  (respecting the same level toggles), batched and flushed every
+  `script.dev.discord.webhook.interval` seconds. This is the noisy one --
+  see Human notifications above for the readable alternative. Keep them
+  pointed at different channels unless you actually want both mixed
+  together.
+- `script.dev.alias` -- used as the Gateway client name and both webhooks'
+  message username.
+
+### Multiple webhook URLs
+
+Both `human.discord.webhook` and `script.dev.discord.webhook` accept a
+JSON array of URLs instead of a single one:
+
+```
+script.dev.discord.webhook=["https://discord.com/api/webhooks/a","https://discord.com/api/webhooks/b"]
+```
+
+Messages/chunks are round-robined across all configured URLs and sent
+concurrently (small thread pool per webhook channel) -- spreads load
+across endpoints so no single webhook eats all your rate-limit budget, and
+cuts total delivery latency when there's more than one chunk to send. A
+single bare or quoted URL still works too, unchanged.
 
 ## Project structure
 

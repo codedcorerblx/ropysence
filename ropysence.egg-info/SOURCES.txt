@@ -10,6 +10,7 @@ ropysence.egg-info/top_level.txt
 src/__init__.py
 src/app.py
 src/core/__init__.py
+src/core/human_webhook.py
 src/core/logging_setup.py
 src/core/options.py
 src/core/secure_store.py

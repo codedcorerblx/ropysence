@@ -9,12 +9,17 @@ Value syntax:
   str      "quoted, may contain {placeholders}"   or bare word (quotes optional
            for str values, but recommended so leading/trailing spaces and
            punctuation are unambiguous)
+  list     ["url1","url2"]            a JSON array -- used for webhook URLs
+           so multiple can be configured (spreads load / avoids rate limits).
+           A single bare/quoted URL is also accepted and wrapped into a
+           one-item list, for convenience and backward compatibility.
 
 Lines starting with # (after stripping leading whitespace) and blank lines
 are ignored. Unknown keys are warned about, not fatal, so a stray typo
 doesn't crash the whole config.
 """
 
+import json
 import re
 from pathlib import Path
 
@@ -37,7 +42,7 @@ PLACEHOLDER_HELP = (
 )
 
 # key -> (type, default, required, comment)
-# type is one of "bool", "int", "str"
+# type is one of "bool", "int", "str", "list"
 OPTION_SCHEMA = {
     # --- Required ---
     "script.user.id": ("str", "", True, "Discord Application (Client) ID -- required"),
@@ -72,18 +77,26 @@ OPTION_SCHEMA = {
     "script.interval": ("int", 5, False, "Seconds between presence polls"),
     "script.localhost.port": ("int", 8969, False, "Local port used to catch the OAuth redirect"),
 
+    # --- Human notifications (clean, readable status updates -- NOT the dev log dump) ---
+    "human.discord.webhook": ("list", [], False, "Discord webhook URL(s) for readable status updates, e.g. [\"url1\",\"url2\"]. Sent once per real status change, never a raw log dump. Multiple URLs are round-robined so no single webhook takes all the traffic."),
+    "human.message.offline": ("str", "{user.display} went offline.", False, ""),
+    "human.message.online": ("str", "{user.display} is online.", False, ""),
+    "human.message.studio": ("str", "{user.display} is in Roblox Studio.", False, ""),
+    "human.message.ingame": ("str", "{user.display} started playing {game.name}.", False, "Counts aren't included here by default -- add {game.server.current}/{game.server.max} yourself if you want them (blank when unavailable/private, same as everywhere else)"),
+    "human.message.ingame.anonymous": ("str", "{user.display} started playing a game.", False, "Used instead of human.message.ingame when privacy.anonymous is on -- deliberately has no {game.name}"),
+
     # --- Dev / logging ---
     "script.dev.debug": ("bool", False, False, "Show DBG-level logs"),
     "script.dev.info": ("bool", False, False, "Show INF-level logs"),
     "script.dev.warn": ("bool", True, False, "Show WRN-level logs"),
     "script.dev.error": ("bool", True, False, "Show ERR-level logs"),
-    "script.dev.discord.webhook": ("str", "", False, "Discord webhook URL for remote logging, sent in periodic batches"),
+    "script.dev.discord.webhook": ("list", [], False, "Discord webhook URL(s) for raw batched log output, e.g. [\"url1\",\"url2\"]. This is the technical firehose -- see human.discord.webhook above for a readable alternative. Multiple URLs are round-robined."),
     "script.dev.discord.webhook.interval": ("int", 30, False, "Seconds between webhook log flushes"),
     "script.dev.alias": ("str", "ropysence", False, "Used as the Gateway client name and webhook embed author"),
     "script.dev.img.default": ("str", "https://raw.githubusercontent.com/codedcorerblx/ropysence/main/icon.png", False, "Fallback image for Online/Studio/Offline/anonymous-mode. A URL here is proxied automatically like any other image (recommended, zero setup); a bare string is instead treated as a literal Rich Presence Art Asset key you've manually uploaded in the dev portal. Leave blank to omit the image entirely."),
 }
 
-_TYPE_ORDER = ["Required", "Privacy", "Buttons", "Activity text", "Behavior", "Dev / logging"]
+_TYPE_ORDER = ["Required", "Privacy", "Buttons", "Activity text", "Behavior", "Human notifications", "Dev / logging"]
 _SECTION_OF = {
     "script.user.id": "Required", "script.bot.id": "Required",
     "privacy.player.count": "Privacy", "privacy.player.name.placeholder": "Privacy", "privacy.anonymous": "Privacy",
@@ -94,6 +107,9 @@ _SECTION_OF = {
     "rpc.game.details.studio": "Activity text", "rpc.game.details.offline": "Activity text",
     "rpc.game.state": "Activity text", "rpc.type": "Activity text", "rpc.state": "Activity text",
     "script.interval": "Behavior", "script.localhost.port": "Behavior",
+    "human.discord.webhook": "Human notifications", "human.message.offline": "Human notifications",
+    "human.message.online": "Human notifications", "human.message.studio": "Human notifications",
+    "human.message.ingame": "Human notifications", "human.message.ingame.anonymous": "Human notifications",
     "script.dev.debug": "Dev / logging", "script.dev.info": "Dev / logging", "script.dev.warn": "Dev / logging",
     "script.dev.error": "Dev / logging", "script.dev.discord.webhook": "Dev / logging",
     "script.dev.discord.webhook.interval": "Dev / logging", "script.dev.alias": "Dev / logging",
@@ -120,6 +136,8 @@ def render_default_template() -> str:
                 lines.append(f"{key}={'true' if default else 'false'}")
             elif isinstance(default, int):
                 lines.append(f"{key}={default}")
+            elif isinstance(default, list):
+                lines.append(f"{key}={json.dumps(default)}")
             else:
                 lines.append(f'{key}="{default}"')
         lines.append("")
@@ -138,6 +156,18 @@ def _coerce(key: str, raw: str, expected_type: str):
             return int(raw.strip('"'))
         except ValueError:
             raise ValueError(f"'{key}' expects an integer, got: {raw}")
+    if expected_type == "list":
+        if raw.startswith("["):
+            try:
+                parsed = json.loads(raw)
+            except json.JSONDecodeError:
+                raise ValueError(f"'{key}' expects a JSON array like [\"url1\",\"url2\"], got: {raw}")
+            if not isinstance(parsed, list):
+                raise ValueError(f"'{key}' expects a JSON array like [\"url1\",\"url2\"], got: {raw}")
+            return [str(v).strip() for v in parsed if str(v).strip()]
+        # convenience/back-compat: a single bare or quoted URL
+        single = raw[1:-1] if (len(raw) >= 2 and raw[0] == '"' and raw[-1] == '"') else raw
+        return [single] if single else []
     # str
     if len(raw) >= 2 and raw[0] == '"' and raw[-1] == '"':
         return raw[1:-1]
@@ -215,6 +245,13 @@ def load_options() -> dict:
             "asset key appears to make Discord silently drop the entire activity update, not just "
             "the image. Safer options: point it at a URL (auto-proxied, no setup), or clear it to "
             "omit the image.", img_default,
+        )
+
+    if resolved["human.discord.webhook"] and resolved["human.discord.webhook"] == resolved["script.dev.discord.webhook"]:
+        log.warning(
+            "human.discord.webhook and script.dev.discord.webhook point at the exact same URL(s) -- "
+            "you'll get both the readable status updates AND the raw technical log dump in the same "
+            "channel. That's allowed, just flagging it in case it wasn't intentional."
         )
 
     log.debug("options.txt loaded (%d keys)", len(resolved))

@@ -10,6 +10,7 @@ import sys
 from src.core.logging_setup import setup_logging, apply_options, get_logger
 from src.core.secure_store import SecureStore
 from src.core.options import load_options
+from src.core.human_webhook import HumanWebhookNotifier
 from src.discord.oauth import get_access_token, DEFAULT_SCOPES
 from src.discord.gateway import run_gateway
 from src.roblox.client import RobloxClient, RobloxAuthError
@@ -71,12 +72,18 @@ def main():
     roblox_client, roblox_user = get_roblox_client(store)
     access_token = get_access_token(client_id, DEFAULT_SCOPES, options["script.localhost.port"], store)
 
+    human_notifier = HumanWebhookNotifier(
+        webhook_urls=options["human.discord.webhook"],
+        alias=options["script.dev.alias"],
+    )
+
     builder = PresenceBuilder(
         roblox=roblox_client,
         user=roblox_user,
         options=options,
         access_token=access_token,
         client_id=client_id,
+        human_notifier=human_notifier,
     )
 
     poll_interval = options["script.interval"]
@@ -94,3 +101,4 @@ def main():
         sys.exit(1)
     finally:
         roblox_client.close()
+        human_notifier.close()

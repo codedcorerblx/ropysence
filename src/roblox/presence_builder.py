@@ -51,12 +51,13 @@ def _fetch_game_chain(roblox: RobloxClient, place_id):
 
 
 class PresenceBuilder:
-    def __init__(self, roblox: RobloxClient, user: dict, options: dict, access_token: str, client_id: str):
+    def __init__(self, roblox: RobloxClient, user: dict, options: dict, access_token: str, client_id: str, human_notifier=None):
         self.roblox = roblox
         self.user = user  # {"id": ..., "name": ..., "displayName": ...}
         self.opt = options
         self.access_token = access_token
         self.client_id = client_id
+        self.human_notifier = human_notifier  # HumanWebhookNotifier or None
         self._state_tracker = {}  # persists across polls -- powers the timestamp-continuity fix
 
     def _base_context(self) -> dict:
@@ -126,17 +127,21 @@ class PresenceBuilder:
         small_image_url_to_proxy = None if anonymous else self.roblox.get_user_headshot_url(uid)
         buttons = []
         state = ""
+        human_message = None  # set per-branch below, only ever sent on a genuine state change
 
         if ptype in (PRESENCE_OFFLINE, PRESENCE_ONLINE, PRESENCE_INVISIBLE, PRESENCE_INSTUDIO):
             if ptype == PRESENCE_OFFLINE:
                 log.debug("presence: offline")
                 details = render(self.opt["rpc.game.details.offline"], context)
+                human_message = render(self.opt["human.message.offline"], context)
             elif ptype == PRESENCE_INSTUDIO:
                 log.info("presence: in Roblox Studio")
                 details = render(self.opt["rpc.game.details.studio"], context)
+                human_message = render(self.opt["human.message.studio"], context)
             else:
                 log.debug("presence: online (website), type=%s", ptype)
                 details = render(self.opt["rpc.game.details.online"], context)
+                human_message = render(self.opt["human.message.online"], context)
 
             buttons = self._select_buttons(None, None, context)
 
@@ -150,6 +155,7 @@ class PresenceBuilder:
 
             if anonymous:
                 details = render(self.opt["rpc.game.details.anonymous"], context)
+                human_message = render(self.opt["human.message.ingame.anonymous"], context)
                 # state stays "", no buttons, no avatar (already excluded
                 # above), large image stays the configured default -- the
                 # whole point of anonymous mode.
@@ -168,6 +174,7 @@ class PresenceBuilder:
                 if self.opt["privacy.player.count"] and place_id and game_id:
                     match = self.roblox.find_matching_server(place_id, game_id, 5)
 
+                human_context = dict(context)
                 if match:
                     current, mx = match
                     match_context = dict(context)
@@ -175,17 +182,20 @@ class PresenceBuilder:
                     match_context["game.server.max"] = mx
                     match_context["game.server.min"] = game_details.get("minPlayers")  # Roblox rarely exposes this
                     details = render(self.opt["rpc.game.details"], match_context)
+                    human_context.update(match_context)
                 else:
                     unmatched_context = dict(context)
                     if not self.opt["privacy.player.name.placeholder"]:
                         unmatched_context["user.name"] = None  # blank it out, privacy default
                     details = render(self.opt["rpc.game.details.unmatched"], unmatched_context)
 
+                human_message = render(self.opt["human.message.ingame"], human_context)
                 buttons = self._select_buttons(join_url, gamepage_url, context)
 
         else:
             log.warning("unrecognized presence type=%s, treating as offline", ptype)
             details = render(self.opt["rpc.game.details.offline"], context)
+            human_message = render(self.opt["human.message.offline"], context)
             buttons = self._select_buttons(None, None, context)
 
         # Resolve any raw URLs (avatar, Roblox game icon, or the default
@@ -215,12 +225,17 @@ class PresenceBuilder:
             log.warning("avatar proxy failed for %s -- omitting", small_image_url_to_proxy)
 
         # Only reset the elapsed-time counter when the state actually
-        # changes, not on every poll cycle.
+        # changes, not on every poll cycle. The human-readable webhook
+        # notification (if configured) fires here too, for the same
+        # reason: once per real transition, never every poll.
         signature = (ptype, presence.get("placeId"), presence.get("gameId"))
-        if self._state_tracker.get("signature") != signature:
+        state_changed = self._state_tracker.get("signature") != signature
+        if state_changed:
             self._state_tracker["signature"] = signature
             self._state_tracker["start_ms"] = int(time.time() * 1000)
             log.info("presence state changed (%s) -- resetting elapsed-time counter", signature)
+            if self.human_notifier and self.human_notifier.enabled and human_message:
+                self.human_notifier.notify(human_message)
         else:
             log.debug("presence state unchanged -- keeping existing start timestamp")
 
