@@ -5,3 +5,4 @@ venv/
 dist/
 build/_work/
 *.spec
+.dev
