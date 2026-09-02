@@ -12,7 +12,7 @@ from src.core.secure_store import SecureStore
 from src.core.options import load_options
 from src.core.human_webhook import HumanWebhookNotifier
 from src.discord.oauth import get_access_token, DEFAULT_SCOPES
-from src.discord.gateway import run_gateway
+from src.discord.gateway import run_gateway_with_reconnect
 from src.roblox.client import RobloxClient, RobloxAuthError
 from src.roblox.presence_builder import PresenceBuilder
 
@@ -70,7 +70,13 @@ def main():
     client_id = options["script.user.id"]
 
     roblox_client, roblox_user = get_roblox_client(store)
-    access_token = get_access_token(client_id, DEFAULT_SCOPES, options["script.localhost.port"], store)
+
+    def get_token():
+        # Cheap to call repeatedly -- returns the cached token when still
+        # valid, only does real work (refresh or full re-auth) when needed.
+        # Called fresh on every reconnect attempt AND every image-proxy
+        # call, so a mid-run token refresh is always picked up automatically.
+        return get_access_token(client_id, DEFAULT_SCOPES, options["script.localhost.port"], store)
 
     human_notifier = HumanWebhookNotifier(
         webhook_urls=options["human.discord.webhook"],
@@ -81,18 +87,28 @@ def main():
         roblox=roblox_client,
         user=roblox_user,
         options=options,
-        access_token=access_token,
+        get_access_token_fn=get_token,
         client_id=client_id,
         human_notifier=human_notifier,
     )
 
     poll_interval = options["script.interval"]
-    log.info("entering main loop (poll_interval=%ss, status=%s)", poll_interval, options["rpc.state"])
+    log.info(
+        "entering main loop (poll_interval=%ss, status=%s, reconnect=%s)",
+        poll_interval, options["rpc.state"], options["script.reconnect.enabled"],
+    )
 
     try:
-        asyncio.run(run_gateway(
-            access_token, builder.build, poll_interval,
-            status=options["rpc.state"], alias=options["script.dev.alias"],
+        asyncio.run(run_gateway_with_reconnect(
+            get_access_token_fn=get_token,
+            build_activity_fn=builder.build,
+            poll_interval=poll_interval,
+            status=options["rpc.state"],
+            alias=options["script.dev.alias"],
+            reconnect_enabled=options["script.reconnect.enabled"],
+            base_delay=options["script.reconnect.base_delay"],
+            max_delay=options["script.reconnect.max_delay"],
+            max_attempts=options["script.reconnect.max_attempts"],
         ))
     except KeyboardInterrupt:
         log.info("interrupted by user, shutting down")

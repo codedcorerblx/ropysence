@@ -14,13 +14,21 @@ Value syntax:
            A single bare/quoted URL is also accepted and wrapped into a
            one-item list, for convenience and backward compatibility.
 
+Custom placeholders: any line of the form `placeholder.<anything>="value"`
+defines a user placeholder, referenced elsewhere as {custom.<anything>} --
+unlimited, name them anything. These are NOT part of OPTION_SCHEMA (the
+whole point is the name is arbitrary), so they're parsed out separately in
+load_options() and returned under the reserved "_custom_placeholders" key
+as {name: raw_template} for src.core.templating.resolve_custom_placeholders()
+to resolve fresh each poll cycle (they may reference dynamic built-in
+tokens like {game.name}, so they can't be resolved once at load time).
+
 Lines starting with # (after stripping leading whitespace) and blank lines
-are ignored. Unknown keys are warned about, not fatal, so a stray typo
-doesn't crash the whole config.
+are ignored. Unknown keys (that aren't `placeholder.*`) are warned about,
+not fatal, so a stray typo doesn't crash the whole config.
 """
 
 import json
-import re
 from pathlib import Path
 
 from src.core.logging_setup import get_logger
@@ -29,16 +37,30 @@ from src.core.secure_store import APP_DIR
 log = get_logger("options")
 
 OPTIONS_FILE = APP_DIR / "options.txt"
+CUSTOM_PLACEHOLDER_PREFIX = "placeholder."
 
 PLACEHOLDER_HELP = (
     "Supported placeholders (usable inside any \"quoted\" content field):\n"
     "  {user.name}            Roblox username\n"
     "  {user.display}         Roblox display name\n"
+    "  {user.id}               Roblox user id\n"
     "  {game.name}            Current game name\n"
+    "  {game.id}               Roblox placeId of the current game\n"
+    "  {game.instance}         Roblox server/instance id (job id) of the current game\n"
     "  {game.server.current}  Players currently on the matched server\n"
     "  {game.server.min}      Server's minimum player count (Roblox rarely exposes this -- often blank)\n"
     "  {game.server.max}      Server's maximum player count\n"
-    "Missing placeholders render as empty text, never an error."
+    "Missing placeholders render as empty text, never an error. A button whose\n"
+    "text or url ends up referencing a missing placeholder is hidden entirely\n"
+    "rather than shown broken -- this is why the default Join button only\n"
+    "appears while actually in a game (it needs {game.id}/{game.instance}).\n"
+    "\n"
+    "You can also define your own placeholders, unlimited, named anything:\n"
+    "  placeholder.<name>=\"value\"   -- reference it as {custom.<name>}\n"
+    "Custom placeholder values may themselves reference other placeholders,\n"
+    "including other custom ones, in any order. Example:\n"
+    "  placeholder.my.website=\"example.com\"\n"
+    "  rpc.button.two.url=\"https://{custom.my.website}\""
 )
 
 # key -> (type, default, required, comment)
@@ -53,13 +75,11 @@ OPTION_SCHEMA = {
     "privacy.player.name.placeholder": ("bool", False, False, "When counts can't be fetched, show your username in the fallback text instead of a blank"),
     "privacy.anonymous": ("bool", False, False, "Hide game name/counts/buttons entirely; large image becomes script.dev.img.default"),
 
-    # --- Buttons (Discord allows max 2; join takes slot 1, profile/gamepage compete for slot 2 -- profile wins if both are on) ---
-    "rpc.button.join": ("bool", True, False, "Show a 'Join Game' button when actually in a joinable game"),
-    "rpc.button.profile": ("bool", True, False, "Show a profile-link button"),
-    "rpc.button.gamepage": ("bool", False, False, "Show a game-page-link button (only used if profile is off)"),
-    "rpc.button.join.content": ("str", "Join Game", False, ""),
-    "rpc.button.profile.content": ("str", "{user.name}'s Profile", False, ""),
-    "rpc.button.gamepage.content": ("str", "See Game Page", False, ""),
+    # --- Buttons (Discord allows max 2 -- exactly these two slots, fully customizable) ---
+    "rpc.button.one.text": ("str", "Join Game", False, "Label for the first button"),
+    "rpc.button.one.url": ("str", "roblox://placeId={game.id}&gameInstanceId={game.instance}", False, "URL for the first button. Default only resolves while actually in a game, so it's hidden the rest of the time -- see the placeholder notes above."),
+    "rpc.button.two.text": ("str", "{user.name}'s Profile", False, "Label for the second button"),
+    "rpc.button.two.url": ("str", "https://www.roblox.com/users/{user.id}/profile", False, "URL for the second button"),
 
     # --- Activity text ---
     "rpc.game.name": ("str", "Roblox", False, "Activity name shown at the top"),
@@ -76,6 +96,12 @@ OPTION_SCHEMA = {
     # --- Behavior ---
     "script.interval": ("int", 5, False, "Seconds between presence polls"),
     "script.localhost.port": ("int", 8969, False, "Local port used to catch the OAuth redirect"),
+
+    # --- Reconnect ---
+    "script.reconnect.enabled": ("bool", True, False, "Automatically reconnect (with RESUME when possible) if the Gateway connection drops"),
+    "script.reconnect.base_delay": ("int", 5, False, "Seconds to wait before the first reconnect attempt; doubles after each further failure"),
+    "script.reconnect.max_delay": ("int", 300, False, "Cap on the backoff delay between reconnect attempts, in seconds"),
+    "script.reconnect.max_attempts": ("int", 0, False, "Give up after this many consecutive failed attempts; 0 means retry forever"),
 
     # --- Human notifications (clean, readable status updates -- NOT the dev log dump) ---
     "human.discord.webhook": ("list", [], False, "Discord webhook URL(s) for readable status updates, e.g. [\"url1\",\"url2\"]. Sent once per real status change, never a raw log dump. Multiple URLs are round-robined so no single webhook takes all the traffic."),
@@ -96,17 +122,19 @@ OPTION_SCHEMA = {
     "script.dev.img.default": ("str", "https://raw.githubusercontent.com/codedcorerblx/ropysence/main/icon.png", False, "Fallback image for Online/Studio/Offline/anonymous-mode. A URL here is proxied automatically like any other image (recommended, zero setup); a bare string is instead treated as a literal Rich Presence Art Asset key you've manually uploaded in the dev portal. Leave blank to omit the image entirely."),
 }
 
-_TYPE_ORDER = ["Required", "Privacy", "Buttons", "Activity text", "Behavior", "Human notifications", "Dev / logging"]
+_TYPE_ORDER = ["Required", "Privacy", "Buttons", "Activity text", "Behavior", "Reconnect", "Human notifications", "Dev / logging"]
 _SECTION_OF = {
     "script.user.id": "Required", "script.bot.id": "Required",
     "privacy.player.count": "Privacy", "privacy.player.name.placeholder": "Privacy", "privacy.anonymous": "Privacy",
-    "rpc.button.join": "Buttons", "rpc.button.profile": "Buttons", "rpc.button.gamepage": "Buttons",
-    "rpc.button.join.content": "Buttons", "rpc.button.profile.content": "Buttons", "rpc.button.gamepage.content": "Buttons",
+    "rpc.button.one.text": "Buttons", "rpc.button.one.url": "Buttons",
+    "rpc.button.two.text": "Buttons", "rpc.button.two.url": "Buttons",
     "rpc.game.name": "Activity text", "rpc.game.details": "Activity text", "rpc.game.details.unmatched": "Activity text",
     "rpc.game.details.anonymous": "Activity text", "rpc.game.details.online": "Activity text",
     "rpc.game.details.studio": "Activity text", "rpc.game.details.offline": "Activity text",
     "rpc.game.state": "Activity text", "rpc.type": "Activity text", "rpc.state": "Activity text",
     "script.interval": "Behavior", "script.localhost.port": "Behavior",
+    "script.reconnect.enabled": "Reconnect", "script.reconnect.base_delay": "Reconnect",
+    "script.reconnect.max_delay": "Reconnect", "script.reconnect.max_attempts": "Reconnect",
     "human.discord.webhook": "Human notifications", "human.message.offline": "Human notifications",
     "human.message.online": "Human notifications", "human.message.studio": "Human notifications",
     "human.message.ingame": "Human notifications", "human.message.ingame.anonymous": "Human notifications",
@@ -141,19 +169,34 @@ def render_default_template() -> str:
             else:
                 lines.append(f'{key}="{default}"')
         lines.append("")
+
+    lines.append("# --- Custom placeholders (optional, unlimited, name them anything) ---")
+    lines.append("# placeholder.<name>=\"value\"  -- reference as {custom.<name>} anywhere above.")
+    lines.append("# Uncomment/edit the examples below, or add your own lines following the")
+    lines.append("# same pattern.")
+    lines.append('# placeholder.my.website="example.com"')
+    lines.append('# rpc.button.two.url="https://{custom.my.website}"')
+    lines.append("")
     return "\n".join(lines)
+
+
+def _strip_quotes(raw: str) -> str:
+    raw = raw.strip()
+    if len(raw) >= 2 and raw[0] == '"' and raw[-1] == '"':
+        return raw[1:-1]
+    return raw
 
 
 def _coerce(key: str, raw: str, expected_type: str):
     raw = raw.strip()
     if expected_type == "bool":
-        low = raw.strip('"').lower()
+        low = _strip_quotes(raw).lower()
         if low not in ("true", "false"):
             raise ValueError(f"'{key}' expects true/false, got: {raw}")
         return low == "true"
     if expected_type == "int":
         try:
-            return int(raw.strip('"'))
+            return int(_strip_quotes(raw))
         except ValueError:
             raise ValueError(f"'{key}' expects an integer, got: {raw}")
     if expected_type == "list":
@@ -166,12 +209,10 @@ def _coerce(key: str, raw: str, expected_type: str):
                 raise ValueError(f"'{key}' expects a JSON array like [\"url1\",\"url2\"], got: {raw}")
             return [str(v).strip() for v in parsed if str(v).strip()]
         # convenience/back-compat: a single bare or quoted URL
-        single = raw[1:-1] if (len(raw) >= 2 and raw[0] == '"' and raw[-1] == '"') else raw
+        single = _strip_quotes(raw)
         return [single] if single else []
     # str
-    if len(raw) >= 2 and raw[0] == '"' and raw[-1] == '"':
-        return raw[1:-1]
-    return raw
+    return _strip_quotes(raw)
 
 
 def _parse_lines(text: str) -> dict:
@@ -198,6 +239,16 @@ def load_options() -> dict:
         raise SystemExit(1)
 
     raw = _parse_lines(OPTIONS_FILE.read_text())
+
+    custom_placeholders = {}
+    for key in list(raw.keys()):
+        if key.startswith(CUSTOM_PLACEHOLDER_PREFIX):
+            name = key[len(CUSTOM_PLACEHOLDER_PREFIX):]
+            if not name:
+                log.warning("options.txt has a bare 'placeholder.' with no name after it -- ignoring")
+                del raw[key]
+                continue
+            custom_placeholders[name] = _strip_quotes(raw.pop(key))
 
     for key in raw:
         if key not in OPTION_SCHEMA:
@@ -254,5 +305,9 @@ def load_options() -> dict:
             "channel. That's allowed, just flagging it in case it wasn't intentional."
         )
 
-    log.debug("options.txt loaded (%d keys)", len(resolved))
+    if custom_placeholders:
+        log.debug("parsed %d custom placeholder(s): %s", len(custom_placeholders), sorted(custom_placeholders))
+    resolved["_custom_placeholders"] = custom_placeholders
+
+    log.debug("options.txt loaded (%d keys, %d custom placeholder(s))", len(resolved), len(custom_placeholders))
     return resolved

@@ -2,32 +2,38 @@
 Turns a Roblox presence snapshot into a Discord Rich Presence activity dict,
 fully driven by options.txt (see core/options.py for every key).
 
+Buttons: exactly two generic slots (Discord's own limit), each just a
+text+url template pair -- rpc.button.one.{text,url} and
+rpc.button.two.{text,url}. A button is included only if BOTH its text and
+url fully resolve (no missing placeholder); this is what makes the default
+Join button ({game.id}/{game.instance} in its URL) only appear while
+actually in a game, without any special-cased "is this a join button" logic
+anywhere -- it's an emergent property of the template, so it applies
+equally to whatever the user reconfigures either slot to.
+
+Custom placeholders (placeholder.<name>="..." in options.txt, referenced as
+{custom.<name>}) are resolved once per build() call against your Roblox
+user info (name/display/id) -- NOT per-game dynamic tokens like
+{game.name}, since those aren't known yet at that point in the flow. A
+button template can still reference {game.id} etc. directly just fine;
+only a *custom placeholder's own* definition is limited to user-level info.
+
 State handling:
   Offline  -> rpc.game.details.offline, default icon (large) + your Roblox
-              profile picture (small, unless privacy.anonymous), profile
-              button only
+              profile picture (small, unless privacy.anonymous)
   Online   -> same treatment as Offline
   Studio   -> same treatment as Offline
-  In game  -> real game icon (large, proxied) + your avatar (small) + up to
-              2 buttons (join, then profile/gamepage), unless
+  In game  -> real game icon (large, proxied) + your avatar (small), unless
               privacy.anonymous, in which case it behaves like a generic
               "in game" state with no game name, no counts, no buttons, no
               avatar, default icon only.
-
-Button slot logic (Discord allows max 2 buttons):
-  slot 1: Join (only when actually in a specific joinable game)
-  slot 2: Profile if rpc.button.profile is on, else Gamepage if
-          rpc.button.gamepage is on (gamepage is a fallback for when
-          profile is deliberately turned off, not an equal alternative)
-Outside of "in game", join/gamepage have no target to link to, so only
-profile is ever offered there.
 """
 
 import json
 import time
 
 from src.core.logging_setup import get_logger
-from src.core.templating import render
+from src.core.templating import render, render_track_missing, resolve_custom_placeholders
 from src.discord.assets import proxy_image_urls
 from src.roblox.client import (
     RobloxClient,
@@ -51,11 +57,14 @@ def _fetch_game_chain(roblox: RobloxClient, place_id):
 
 
 class PresenceBuilder:
-    def __init__(self, roblox: RobloxClient, user: dict, options: dict, access_token: str, client_id: str, human_notifier=None):
+    def __init__(self, roblox: RobloxClient, user: dict, options: dict, get_access_token_fn, client_id: str, human_notifier=None):
         self.roblox = roblox
         self.user = user  # {"id": ..., "name": ..., "displayName": ...}
         self.opt = options
-        self.access_token = access_token
+        self.get_access_token_fn = get_access_token_fn  # zero-arg callable -- always fetches the CURRENT token,
+        # never a frozen one from construction time. Matters once the Gateway
+        # can run for days across reconnects: image-proxy calls need a token
+        # that's still valid even long after the process started.
         self.client_id = client_id
         self.human_notifier = human_notifier  # HumanWebhookNotifier or None
         self._state_tracker = {}  # persists across polls -- powers the timestamp-continuity fix
@@ -64,33 +73,24 @@ class PresenceBuilder:
         return {
             "user.name": self.user.get("name"),
             "user.display": self.user.get("displayName") or self.user.get("name"),
+            "user.id": self.user.get("id"),
         }
 
-    def _profile_url(self) -> str:
-        return f"https://www.roblox.com/users/{self.user['id']}/profile"
-
-    def _select_buttons(self, join_url: str | None, gamepage_url: str | None, context: dict) -> list:
-        """Returns a list of {"label","url","is_profile"} dicts, at most 2,
-        per the slot-priority rules documented at module level."""
-        buttons = []
-        if join_url and self.opt["rpc.button.join"]:
-            buttons.append({
-                "label": render(self.opt["rpc.button.join.content"], context),
-                "url": join_url, "is_profile": False,
-            })
-
-        if self.opt["rpc.button.profile"]:
-            buttons.append({
-                "label": render(self.opt["rpc.button.profile.content"], context),
-                "url": self._profile_url(), "is_profile": True,
-            })
-        elif gamepage_url and self.opt["rpc.button.gamepage"]:
-            buttons.append({
-                "label": render(self.opt["rpc.button.gamepage.content"], context),
-                "url": gamepage_url, "is_profile": False,
-            })
-
-        return buttons[:2]
+    def _build_button(self, number: str, context: dict):
+        """number is 'one' or 'two'. Returns {"label", "url"} or None if
+        either the text or URL references a placeholder that isn't
+        available right now -- e.g. the default Join button needs
+        {game.id}/{game.instance}, which only exist while actually in a
+        game. This is a generic rule, not special-cased per button, so it
+        applies the same way to whatever the user reconfigures either slot to."""
+        text_template = self.opt[f"rpc.button.{number}.text"]
+        url_template = self.opt[f"rpc.button.{number}.url"]
+        label, label_missing = render_track_missing(text_template, context)
+        url, url_missing = render_track_missing(url_template, context)
+        if not label or not url or label_missing or url_missing:
+            log.debug("button '%s' skipped this cycle (missing placeholder or empty result)", number)
+            return None
+        return {"label": label, "url": url}
 
     def build(self):
         """Returns a Discord activity dict, or None if this cycle should be
@@ -116,6 +116,7 @@ class PresenceBuilder:
 
         ptype = presence.get("userPresenceType", PRESENCE_OFFLINE)
         context = self._base_context()
+        context.update(resolve_custom_placeholders(self.opt.get("_custom_placeholders", {}), context))
 
         # Large image: the game/app icon (default icon.png for non-game
         # states, the real Roblox game thumbnail while in-game).
@@ -125,7 +126,6 @@ class PresenceBuilder:
         large_image = None if default_is_url else (default_icon_value or None)
         large_image_url_to_proxy = default_icon_value if default_is_url else None
         small_image_url_to_proxy = None if anonymous else self.roblox.get_user_headshot_url(uid)
-        buttons = []
         state = ""
         human_message = None  # set per-branch below, only ever sent on a genuine state change
 
@@ -143,15 +143,10 @@ class PresenceBuilder:
                 details = render(self.opt["rpc.game.details.online"], context)
                 human_message = render(self.opt["human.message.online"], context)
 
-            buttons = self._select_buttons(None, None, context)
-
         elif ptype == PRESENCE_INGAME:
             place_id = presence.get("placeId")
             game_id = presence.get("gameId")
             log.info("presence: in game, placeId=%s gameId=%s anonymous=%s", place_id, game_id, anonymous)
-
-            join_url = f"roblox://placeId={place_id}&gameInstanceId={game_id}" if (place_id and game_id) else None
-            gamepage_url = f"https://www.roblox.com/games/{place_id}" if place_id else None
 
             if anonymous:
                 details = render(self.opt["rpc.game.details.anonymous"], context)
@@ -163,6 +158,12 @@ class PresenceBuilder:
                 _, game_details, icon_url = self._fetch_game_data(place_id)
                 game_name = game_details.get("name", "a game")
                 context["game.name"] = game_name
+                # {game.id} = Roblox placeId (the game itself); {game.instance}
+                # = Roblox gameId (the specific server/job the player is on --
+                # Roblox's own field naming is a little confusing here, since
+                # "gameId" is actually the server instance, not the game).
+                context["game.id"] = place_id
+                context["game.instance"] = game_id
                 state = render(self.opt["rpc.game.state"], context)
 
                 if icon_url:
@@ -190,20 +191,26 @@ class PresenceBuilder:
                     details = render(self.opt["rpc.game.details.unmatched"], unmatched_context)
 
                 human_message = render(self.opt["human.message.ingame"], human_context)
-                buttons = self._select_buttons(join_url, gamepage_url, context)
 
         else:
             log.warning("unrecognized presence type=%s, treating as offline", ptype)
             details = render(self.opt["rpc.game.details.offline"], context)
             human_message = render(self.opt["human.message.offline"], context)
-            buttons = self._select_buttons(None, None, context)
+
+        buttons = []
+        if not anonymous:
+            for number in ("one", "two"):
+                b = self._build_button(number, context)
+                if b:
+                    buttons.append(b)
 
         # Resolve any raw URLs (avatar, Roblox game icon, or the default
         # icon) into Discord-usable "mp:..." refs, one batched call.
         proxied = {}
         urls_needing_proxy = [u for u in (large_image_url_to_proxy, small_image_url_to_proxy) if u]
         if urls_needing_proxy:
-            proxied = proxy_image_urls(self.access_token, self.client_id, urls_needing_proxy)
+            access_token = self.get_access_token_fn()
+            proxied = proxy_image_urls(access_token, self.client_id, urls_needing_proxy)
 
         if large_image_url_to_proxy:
             large_image = proxied.get(large_image_url_to_proxy)
@@ -213,7 +220,7 @@ class PresenceBuilder:
                     large_image_url_to_proxy,
                 )
                 if default_is_url and default_icon_value and default_icon_value != large_image_url_to_proxy:
-                    fallback = proxy_image_urls(self.access_token, self.client_id, [default_icon_value])
+                    fallback = proxy_image_urls(self.get_access_token_fn(), self.client_id, [default_icon_value])
                     large_image = fallback.get(default_icon_value)
                 elif not default_is_url and default_icon_value:
                     large_image = default_icon_value
@@ -262,16 +269,13 @@ class PresenceBuilder:
         if buttons:
             activity["buttons"] = [b["label"] for b in buttons]
             activity["metadata"] = {"button_urls": [b["url"] for b in buttons]}
-            if state:
-                for b in buttons:
-                    if b.get("is_profile"):
-                        activity["state_url"] = b["url"]
-                        break
+            if state and len(buttons) > 1:
+                activity["state_url"] = buttons[1]["url"]
 
         if not activity["assets"]:
             del activity["assets"]
 
-        log.info("build_activity: result details='%s' state='%s'", details, state)
+        log.info("build_activity: result details='%s' state='%s' buttons=%s", details, state, [b["label"] for b in buttons])
         log.debug("full activity payload: %s", json.dumps(activity))
         return activity
 

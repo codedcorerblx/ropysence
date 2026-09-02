@@ -75,10 +75,14 @@ the current state:
 |---|---|
 | `{user.name}` | Roblox username |
 | `{user.display}` | Roblox display name |
+| `{user.id}` | Roblox user id |
 | `{game.name}` | Current game's name (only set while in a game) |
+| `{game.id}` | Roblox placeId of the current game (only set while in a game) |
+| `{game.instance}` | Roblox server/instance id, a.k.a. job id (only set while in a game) |
 | `{game.server.current}` | Players on the matched server |
 | `{game.server.min}` | Server's minimum players -- Roblox's public API rarely exposes this, often blank |
 | `{game.server.max}` | Server's max players |
+| `{custom.<name>}` | Your own placeholders -- see Custom placeholders below |
 
 ### Privacy
 
@@ -88,12 +92,50 @@ the current state:
 
 ### Buttons
 
-Discord allows at most 2 buttons. Slot 1 is always **Join** (only shown
-when actually in a specific joinable game -- Online/Studio/Offline never
-have anywhere to link a Join button to). Slot 2 is **Profile** if
-`rpc.button.profile` is on; **Gamepage** only steps in as a substitute when
-`rpc.button.profile` is off and `rpc.button.gamepage` is on. Profile always
-wins if both are enabled.
+Discord allows at most 2 buttons -- exactly two fully generic slots, each
+just a text+url template pair:
+
+```
+rpc.button.one.text="Join Game"
+rpc.button.one.url="roblox://placeId={game.id}&gameInstanceId={game.instance}"
+rpc.button.two.text="{user.name}'s Profile"
+rpc.button.two.url="https://www.roblox.com/users/{user.id}/profile"
+```
+
+A button is shown only if **both** its text and url fully resolve -- no
+missing placeholder. That's the whole mechanism behind the default Join
+button only appearing while actually in a game: its URL needs `{game.id}`/
+`{game.instance}`, which simply don't exist otherwise, so it's hidden
+rather than shown broken. This applies equally to whatever you reconfigure
+either slot to -- there's no special-cased "this is the join button" logic
+anywhere anymore. Set either slot to anything: a Discord invite, your
+website, a donation link, another game entirely.
+
+### Custom placeholders
+
+Define as many as you want, named anything:
+
+```
+placeholder.my.website="example.com"
+placeholder.join.url="https://discord.gg/{custom.my.website}"
+```
+
+Reference them anywhere with the `custom.` prefix (added automatically so
+they can never collide with the built-in placeholder names):
+
+```
+rpc.button.two.url="https://{custom.my.website}/{user.name}"
+```
+
+Custom placeholder values can reference other placeholders, including
+other custom ones, in any declaration order -- `join.url` above referencing
+`my.website` before or after its own line both work. One limitation: a
+custom placeholder's own definition can only reference your Roblox user
+info (`{user.name}`/`{user.display}`/`{user.id}`) and other custom
+placeholders, not per-game dynamic tokens like `{game.name}` -- but a
+button template can still reference those *directly* just fine, so this
+only matters if a custom placeholder specifically tries to embed
+`{game.name}` itself.
 
 ### Images
 
@@ -163,6 +205,26 @@ concurrently (small thread pool per webhook channel) -- spreads load
 across endpoints so no single webhook eats all your rate-limit budget, and
 cuts total delivery latency when there's more than one chunk to send. A
 single bare or quoted URL still works too, unchanged.
+
+### Reconnect
+
+If the Gateway connection drops -- network blip, Discord-issued
+`RECONNECT`, `INVALID_SESSION`, or any abnormal close -- it's retried
+automatically with exponential backoff instead of the process just exiting.
+When the prior session is still valid, it uses Discord's `RESUME` protocol
+(faster, no re-authorization) rather than a full re-`IDENTIFY`.
+
+```
+script.reconnect.enabled=true
+script.reconnect.base_delay=5      # seconds before the first retry
+script.reconnect.max_delay=300     # cap on the backoff delay
+script.reconnect.max_attempts=0    # 0 = retry forever
+```
+
+A successful reconnect resets the backoff back to `base_delay` -- a
+connection that stayed up for hours before dropping isn't penalized with a
+long wait on its next retry. Ctrl+C always stops the process; it never
+triggers a reconnect attempt.
 
 ## Project structure
 
