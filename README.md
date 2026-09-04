@@ -82,7 +82,28 @@ the current state:
 | `{game.server.current}` | Players on the matched server |
 | `{game.server.min}` | Server's minimum players -- Roblox's public API rarely exposes this, often blank |
 | `{game.server.max}` | Server's max players |
+| `{game.subplace.name}` | Name of the specific subplace/area you're on, if the game has more than one place -- see Subplaces below |
+| `{game.subplace.id}` | placeId of that subplace |
 | `{custom.<name>}` | Your own placeholders -- see Custom placeholders below |
+
+### Subplaces
+
+Some games (theme parks, hub-and-area layouts, etc.) are made of multiple
+Roblox "places" within one universe -- an overall game plus separate areas
+players can teleport between. `{game.subplace.name}`/`{game.subplace.id}`
+let you show which specific one you're actually on, separately from the
+game's overall name:
+
+```
+rpc.game.state="{game.name} | {game.subplace.name}"
+```
+
+Blank (and the `|` just renders with nothing after it) whenever you're on
+the main place, or when this can't be determined. That second case is the
+common one: Roblox's places-list API is creator-facing and requires edit
+access to the game, so it only works for games you personally own or
+co-own -- it 403s for essentially any other game, which is expected and
+handled gracefully, not an error.
 
 ### Privacy
 

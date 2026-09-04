@@ -98,6 +98,7 @@ def available_tokens() -> list:
     return [
         "user.name", "user.display", "user.id",
         "game.name", "game.id", "game.instance",
+        "game.subplace.name", "game.subplace.id",
         "game.server.current", "game.server.min", "game.server.max",
         "custom.<name> (from your own placeholder.<name>=... lines)",
     ]

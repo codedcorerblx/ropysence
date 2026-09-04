@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.3.0
+
+- New placeholders: `{game.subplace.name}` and `{game.subplace.id}`, for
+  games made of multiple Roblox "places" within one universe (theme parks,
+  hub-and-area layouts, etc.) -- shows which specific area you're on,
+  separate from the overall game name (e.g.
+  `rpc.game.state="{game.name} | {game.subplace.name}"`).
+- This uses Roblox's creator-facing places-list API, which requires edit
+  access to the game -- it will 403 for essentially any game you don't
+  personally own or co-own. Handled gracefully: `{game.subplace.*}` just
+  stays blank in that case (and whenever you're on the main place), cached
+  per-universe so a game you can't query isn't re-requested every poll.
+- `{game.id}`'s existing meaning (the actual current placeId, used by the
+  default Join button) is unchanged -- subplace detection is additive, not
+  a redefinition of any existing token.
+
 ## Unreleased
 
 - Restructured the package to a proper "src layout": all code moved from

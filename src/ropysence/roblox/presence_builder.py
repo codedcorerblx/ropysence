@@ -155,7 +155,7 @@ class PresenceBuilder:
                 # above), large image stays the configured default -- the
                 # whole point of anonymous mode.
             else:
-                _, game_details, icon_url = self._fetch_game_data(place_id)
+                universe_id, game_details, icon_url = self._fetch_game_data(place_id)
                 game_name = game_details.get("name", "a game")
                 context["game.name"] = game_name
                 # {game.id} = Roblox placeId (the game itself); {game.instance}
@@ -164,6 +164,27 @@ class PresenceBuilder:
                 # "gameId" is actually the server instance, not the game).
                 context["game.id"] = place_id
                 context["game.instance"] = game_id
+
+                # Subplace: only set when the current place differs from
+                # the universe's main/root place. Blank otherwise -- this
+                # covers both "not a subplace" and "we couldn't check"
+                # (develop.roblox.com's places endpoint requires edit
+                # access to the game, so it 403s for most games you don't
+                # own; get_universe_places() handles that gracefully).
+                root_place_id = game_details.get("rootPlaceId")
+                if universe_id and place_id and root_place_id and place_id != root_place_id:
+                    places = self.roblox.get_universe_places(universe_id)
+                    subplace_name = places.get(place_id) if places else None
+                    if subplace_name:
+                        context["game.subplace.id"] = place_id
+                        context["game.subplace.name"] = subplace_name
+                        log.info("on a subplace: '%s' (placeId=%s, root=%s)", subplace_name, place_id, root_place_id)
+                    else:
+                        log.debug(
+                            "on a non-root place (placeId=%s != rootPlaceId=%s) but its name wasn't "
+                            "available -- {game.subplace.*} left blank", place_id, root_place_id,
+                        )
+
                 state = render(self.opt["rpc.game.state"], context)
 
                 if icon_url:
@@ -175,7 +196,7 @@ class PresenceBuilder:
                 if self.opt["privacy.player.count"] and place_id and game_id:
                     match = self.roblox.find_matching_server(place_id, game_id, 5)
 
-                human_context = dict(context)
+                human_context = dict(context)  # picks up game.subplace.* too, if set above
                 if match:
                     current, mx = match
                     match_context = dict(context)

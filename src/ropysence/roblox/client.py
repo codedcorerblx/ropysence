@@ -7,6 +7,10 @@ needed to build a "now playing" status:
   apis.roblox.com        -> placeId -> universeId
   games.roblox.com       -> game name/details, public server listing
   thumbnails.roblox.com  -> game icon, user avatar headshot
+  develop.roblox.com     -> subplace lookup (places within a universe) --
+                            creator-facing endpoint, so it 403s for most
+                            games you don't own; handled gracefully, see
+                            get_universe_places() below
 
 The cookie is the only credential involved. It is held in memory on the
 requests.Session and is NEVER written to a log line -- only its presence/
@@ -32,6 +36,7 @@ GAME_DETAILS_URL = "https://games.roblox.com/v1/games"
 GAME_ICON_URL = "https://thumbnails.roblox.com/v1/games/icons"
 USER_HEADSHOT_URL = "https://thumbnails.roblox.com/v1/users/avatar-headshot"
 SERVERS_URL = "https://games.roblox.com/v1/games/{place_id}/servers/Public"
+PLACES_URL = "https://develop.roblox.com/v1/universes/{universe_id}/places"
 
 PRESENCE_OFFLINE = 0
 PRESENCE_ONLINE = 1
@@ -68,6 +73,7 @@ class RobloxClient:
         self._game_details_cache = {}
         self._icon_cache = {}
         self._headshot_cache = {}
+        self._places_cache = {}  # universe_id -> {place_id: place_name} or None (unavailable, don't retry)
 
         log.info("RobloxClient initialized (cookie loaded into session, value never logged, worker pool size=%d)", max_workers)
 
@@ -287,3 +293,54 @@ class RobloxClient:
             str(game_id)[:8] if game_id else game_id, max_pages,
         )
         return None
+
+    def get_universe_places(self, universe_id: int):
+        """Returns {place_id: place_name} for every place in this universe
+        (the main place plus any subplaces), or None if unavailable.
+
+        This is the develop.roblox.com creator API -- it requires edit
+        access to the universe, so it will 403 for essentially any game you
+        don't personally own or co-own. That's expected, not a bug: it just
+        means {game.subplace.*} stays blank for that game. Cached per
+        universe_id INCLUDING failures, so a game you can't query isn't
+        re-requested every single poll cycle."""
+        if universe_id in self._places_cache:
+            return self._places_cache[universe_id]
+
+        places = {}
+        cursor = ""
+        for page in range(1, 4):  # cap at 3 pages (300 places) -- far more than any real game needs
+            params = {"isUniverseCreation": "false", "limit": 100, "sortOrder": "Asc"}
+            if cursor:
+                params["cursor"] = cursor
+
+            resp = self._get(PLACES_URL.format(universe_id=universe_id), params=params)
+
+            if resp.status_code in (401, 403):
+                log.warning(
+                    "no access to the places list for universeId=%s (HTTP %d) -- this endpoint "
+                    "requires edit access to the game, so it's expected to fail for games you "
+                    "don't own. {game.subplace.*} will stay blank for this game.",
+                    universe_id, resp.status_code,
+                )
+                self._places_cache[universe_id] = None
+                return None
+            if resp.status_code != 200:
+                log.warning("could not fetch places list for universeId=%s (HTTP %d)", universe_id, resp.status_code)
+                self._places_cache[universe_id] = None
+                return None
+
+            body = resp.json()
+            page_places = body.get("data", [])
+            log.debug("places list page %d: %d place(s)", page, len(page_places))
+            for p in page_places:
+                if p.get("id") is not None:
+                    places[p["id"]] = p.get("name")
+
+            cursor = body.get("nextPageCursor")
+            if not cursor:
+                break
+
+        self._places_cache[universe_id] = places
+        log.info("cached %d place(s) for universeId=%s", len(places), universe_id)
+        return places

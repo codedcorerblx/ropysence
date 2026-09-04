@@ -50,6 +50,14 @@ PLACEHOLDER_HELP = (
     "  {game.server.current}  Players currently on the matched server\n"
     "  {game.server.min}      Server's minimum player count (Roblox rarely exposes this -- often blank)\n"
     "  {game.server.max}      Server's maximum player count\n"
+    "  {game.subplace.name}   Name of the specific subplace/area you're on, if the game has\n"
+    "                          multiple places and you're not on the main one -- blank if you're\n"
+    "                          on the main place, OR if this data isn't accessible (this endpoint\n"
+    "                          only works for games you personally own/co-own, so it's blank for\n"
+    "                          most third-party games -- that's expected, not a bug)\n"
+    "  {game.subplace.id}     placeId of that subplace (same value as {game.id} when set -- its\n"
+    "                          main use is as a blank/non-blank signal for whether you're on a\n"
+    "                          subplace at all, e.g. \"{game.name}\" vs \"{game.name} | {game.subplace.name}\")\n"
     "Missing placeholders render as empty text, never an error. A button whose\n"
     "text or url ends up referencing a missing placeholder is hidden entirely\n"
     "rather than shown broken -- this is why the default Join button only\n"
@@ -89,7 +97,7 @@ OPTION_SCHEMA = {
     "rpc.game.details.online": ("str", "Online", False, ""),
     "rpc.game.details.studio": ("str", "In Studio", False, ""),
     "rpc.game.details.offline": ("str", "Offline", False, ""),
-    "rpc.game.state": ("str", "{game.name}", False, "Only used while in a game"),
+    "rpc.game.state": ("str", "{game.name}", False, "Only used while in a game. If the game has subplaces you own/co-own, try e.g. \"{game.name} | {game.subplace.name}\" -- see {game.subplace.*} above"),
     "rpc.type": ("int", 0, False, "Discord activity type: 0 Playing, 1 Streaming, 2 Listening, 3 Watching, 5 Competing"),
     "rpc.state": ("str", "online", False, "Discord status shown alongside the activity: online / idle / dnd (invisible is not supported)"),
 
