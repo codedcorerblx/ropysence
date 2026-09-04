@@ -10,8 +10,8 @@ the process-spawn overhead multiprocessing would add for no gain.
 
 from concurrent.futures import ThreadPoolExecutor, Future
 
-from src.core.logging_setup import get_logger
-from src.workers.timing import timed
+from src.ropysence.core.logging_setup import get_logger
+from src.ropysence.workers.timing import timed
 
 log = get_logger("worker_pool")
 

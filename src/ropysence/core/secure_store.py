@@ -23,7 +23,7 @@ from pathlib import Path
 
 from cryptography.fernet import Fernet, InvalidToken
 
-from src.core.logging_setup import get_logger
+from src.ropysence.core.logging_setup import get_logger
 
 log = get_logger("secure_store")
 

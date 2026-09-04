@@ -20,8 +20,8 @@ import threading
 
 import requests
 
-from src.core.logging_setup import get_logger, log_bypass
-from src.workers.pool import WorkerPool
+from src.ropysence.core.logging_setup import get_logger, log_bypass
+from src.ropysence.workers.pool import WorkerPool
 
 log = get_logger("roblox_client")
 

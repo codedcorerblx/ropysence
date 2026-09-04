@@ -1,2 +1,0 @@
-[console_scripts]
-ropysence = src.app:main

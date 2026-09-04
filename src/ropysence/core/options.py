@@ -31,8 +31,8 @@ not fatal, so a stray typo doesn't crash the whole config.
 import json
 from pathlib import Path
 
-from src.core.logging_setup import get_logger
-from src.core.secure_store import APP_DIR
+from src.ropysence.core.logging_setup import get_logger
+from src.ropysence.core.secure_store import APP_DIR
 
 log = get_logger("options")
 

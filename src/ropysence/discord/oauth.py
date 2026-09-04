@@ -21,8 +21,8 @@ from urllib.parse import urlencode, urlparse, parse_qs
 
 import requests
 
-from src.core.logging_setup import get_logger
-from src.core.secure_store import SecureStore
+from src.ropysence.core.logging_setup import get_logger
+from src.ropysence.core.secure_store import SecureStore
 
 log = get_logger("discord_oauth")
 

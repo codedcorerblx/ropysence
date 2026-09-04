@@ -18,9 +18,9 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.core.logging_setup import setup_logging, get_logger
-from src.core.secure_store import SecureStore
-from src.roblox.client import RobloxClient, RobloxAuthError
+from src.ropysence.core.logging_setup import setup_logging, get_logger
+from src.ropysence.core.secure_store import SecureStore
+from src.ropysence.roblox.client import RobloxClient, RobloxAuthError
 
 setup_logging()
 log = get_logger("diagnose_presence")

@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- Restructured the package to a proper "src layout": all code moved from
+  `src/*` to `src/ropysence/*`. `src/` is now just a container directory,
+  not itself the importable package -- avoids a real collision risk where
+  a bare top-level `src` package could clash with an unrelated project's
+  own generically-named `src` package on the same machine. All internal
+  imports, `run.py`, `tools/diagnose_presence.py`, and the `pyproject.toml`
+  console-script entry point updated accordingly.
+
 ## 1.2.0
 
 - **Breaking change**: replaced the three-toggle button system

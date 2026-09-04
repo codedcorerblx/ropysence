@@ -32,10 +32,10 @@ State handling:
 import json
 import time
 
-from src.core.logging_setup import get_logger
-from src.core.templating import render, render_track_missing, resolve_custom_placeholders
-from src.discord.assets import proxy_image_urls
-from src.roblox.client import (
+from src.ropysence.core.logging_setup import get_logger
+from src.ropysence.core.templating import render, render_track_missing, resolve_custom_placeholders
+from src.ropysence.discord.assets import proxy_image_urls
+from src.ropysence.roblox.client import (
     RobloxClient,
     PRESENCE_OFFLINE, PRESENCE_ONLINE, PRESENCE_INGAME,
     PRESENCE_INSTUDIO, PRESENCE_INVISIBLE,

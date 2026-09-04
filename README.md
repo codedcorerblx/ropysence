@@ -234,23 +234,28 @@ ropysence/
 ├── run.py                entry point -- `python run.py`
 ├── requirements.txt
 ├── src/
-│   ├── app.py             orchestration: wires everything together
-│   ├── core/               shared foundation
-│   │   ├── options.py        options.txt schema, parser, template generator
-│   │   ├── secure_store.py   encrypted local storage (keyring / key file)
-│   │   ├── templating.py     {token} substitution engine
-│   │   ├── logging_setup.py  INF/WRN/ERR/DBG config, per-level toggles
-│   │   └── webhook_logger.py batched Discord webhook log handler
-│   ├── discord/             Discord side
-│   │   ├── oauth.py           PKCE OAuth2 flow + cached token refresh
-│   │   ├── gateway.py         Gateway connection, heartbeat, presence push
-│   │   └── assets.py          external-assets image proxy
-│   ├── roblox/               Roblox side
-│   │   ├── client.py          API calls (auth, presence, games, servers)
-│   │   └── presence_builder.py Roblox presence -> Discord activity dict
-│   └── workers/             concurrency utilities (available for future use)
-│       ├── pool.py            ThreadPoolExecutor wrapper
-│       └── timing.py          timing decorator for worker tasks
+│   └── ropysence/           the actual importable package (src/ itself is
+│       │                    just a container -- standard "src layout",
+│       │                    keeps the package name unique so it can't
+│       │                    collide with an unrelated "src" from anyone
+│       │                    else's project on the same machine)
+│       ├── app.py             orchestration: wires everything together
+│       ├── core/               shared foundation
+│       │   ├── options.py        options.txt schema, parser, template generator
+│       │   ├── secure_store.py   encrypted local storage (keyring / key file)
+│       │   ├── templating.py     {token} substitution engine
+│       │   ├── logging_setup.py  INF/WRN/ERR/DBG config, per-level toggles
+│       │   └── webhook_logger.py batched Discord webhook log handler
+│       ├── discord/             Discord side
+│       │   ├── oauth.py           PKCE OAuth2 flow + cached token refresh
+│       │   ├── gateway.py         Gateway connection, heartbeat, presence push
+│       │   └── assets.py          external-assets image proxy
+│       ├── roblox/               Roblox side
+│       │   ├── client.py          API calls (auth, presence, games, servers)
+│       │   └── presence_builder.py Roblox presence -> Discord activity dict
+│       └── workers/             concurrency utilities (available for future use)
+│           ├── pool.py            ThreadPoolExecutor wrapper
+│           └── timing.py          timing decorator for worker tasks
 ├── tools/
 │   └── diagnose_presence.py  fast standalone presence check (see below)
 └── build/

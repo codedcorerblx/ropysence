@@ -13,7 +13,7 @@ conveniently matches our large_image + small_image.
 
 import requests
 
-from src.core.logging_setup import get_logger
+from src.ropysence.core.logging_setup import get_logger
 
 log = get_logger("discord_assets")
 

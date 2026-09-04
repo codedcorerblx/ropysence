@@ -15,7 +15,7 @@ dependencies = [
 ]
 
 [project.scripts]
-ropysence = "src.app:main"
+ropysence = "src.ropysence.app:main"
 
 [tool.setuptools]
-packages = ["src", "src.core", "src.discord", "src.roblox", "src.workers"]
+packages = ["src", "src.ropysence", "src.ropysence.core", "src.ropysence.discord", "src.ropysence.roblox", "src.ropysence.workers"]

@@ -7,14 +7,14 @@ import asyncio
 import getpass
 import sys
 
-from src.core.logging_setup import setup_logging, apply_options, get_logger
-from src.core.secure_store import SecureStore
-from src.core.options import load_options
-from src.core.human_webhook import HumanWebhookNotifier
-from src.discord.oauth import get_access_token, DEFAULT_SCOPES
-from src.discord.gateway import run_gateway_with_reconnect
-from src.roblox.client import RobloxClient, RobloxAuthError
-from src.roblox.presence_builder import PresenceBuilder
+from src.ropysence.core.logging_setup import setup_logging, apply_options, get_logger
+from src.ropysence.core.secure_store import SecureStore
+from src.ropysence.core.options import load_options
+from src.ropysence.core.human_webhook import HumanWebhookNotifier
+from src.ropysence.discord.oauth import get_access_token, DEFAULT_SCOPES
+from src.ropysence.discord.gateway import run_gateway_with_reconnect
+from src.ropysence.roblox.client import RobloxClient, RobloxAuthError
+from src.ropysence.roblox.presence_builder import PresenceBuilder
 
 setup_logging()
 log = get_logger("app")

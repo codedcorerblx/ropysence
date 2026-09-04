@@ -81,7 +81,7 @@ def apply_options(options: dict):
 
     webhook_urls = options.get("script.dev.discord.webhook") or []
     if webhook_urls:
-        from src.core.webhook_logger import WebhookLogHandler
+        from src.ropysence.core.webhook_logger import WebhookLogHandler
         handler = WebhookLogHandler(
             webhook_urls=webhook_urls,
             flush_interval=options.get("script.dev.discord.webhook.interval", 30),
